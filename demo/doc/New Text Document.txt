@@ -1,0 +1,45 @@
+    Introduction
+
+Modern defence and surveillance systems rely heavily on direct detection methods—visual cameras, thermal imaging, or RF monitoring. However, adversaries increasingly use camouflage, stealth materials, and environmental blending techniques to avoid detection.
+Traditional systems fail because they ask:
+“Can I see the object?”
+Project PARALLAX changes the question to:
+“Is something present that statistically should not be there?”
+This shift—from object detection to anomaly inference—is the foundation of the system.
+
+    Core Concept
+
+PARALLAX is based on a simple but powerful principle:
+Hidden objects disturb the environment—even if they are not visible.
+These disturbances can appear as:
+Slight temperature inconsistencies Subtle visual texture disruptions Minor RF signal irregularities
+Individually, these signals may be insignificant. But when combined and analyzed using AI, they form a detectable anomaly pattern.
+
+    System Overview
+
+PARALLAX is a multi-layered embedded AI system consisting of:
+Layer 1: Sensor Acquisition Visual Camera (RGB) Thermal Sensor (Infrared) RF Sensor (signal disturbance detection) Layer 2: Preprocessing Noise filtering Normalization Frame synchronization Layer 3: Feature Extraction Extract meaningful patterns from each sensor stream Layer 4: AI-Based Anomaly Detection Learn “normal environment behavior” Detect deviations Layer 5: Sensor Fusion Engine Combine outputs from all sensors Increase reliability Layer 6: Output Interface Heatmaps Alerts Probability scores 4. Detailed System Components 4.1 Visual Module (Computer Vision Core) Purpose
+To analyze spatial and structural patterns in the environment.
+Techniques Used Edge detection (Canny) Texture analysis (LBP – Local Binary Patterns) Background subtraction Optical flow (motion detection) What It Detects Irregular shapes Disturbed textures (e.g., camouflage nets) Unnatural motion patterns 4.2 Thermal Module Purpose
+Detect heat distribution inconsistencies.
+Key Idea
+Even when camouflaged, objects:
+Emit heat Absorb heat differently Techniques Temperature gradient mapping Temporal heat variation tracking Thermal anomaly clustering 4.3 RF Sensing Module Purpose
+Detect disturbances in radio frequency signals.
+Concept
+Objects affect RF signals via:
+Reflection Absorption Diffraction Techniques Signal strength variation tracking (RSSI) Frequency spectrum analysis Noise pattern deviation 5. AI & Machine Learning Core 5.1 Why Anomaly Detection?
+Because:
+You don’t always know what the threat looks like You only know what “normal” looks like 5.2 Models Used
+
+    Autoencoders Learn normal patterns High reconstruction error = anomaly
+    Isolation Forest Detect rare/unusual data points
+    One-Class SVM (optional) Classifies normal vs abnormal 5.3 Multi-Modal Fusion AI
+
+Outputs from:
+Vision model Thermal model RF model
+Are combined using:
+Weighted averaging Neural fusion layer 6. Implementation Plan 6.1 Hardware Setup Core Components Microcontroller / SBC: Raspberry Pi / NVIDIA Jetson Nano Camera: Standard USB camera Thermal Sensor: MLX90640 (affordable IR array) RF Module: ESP32 with RSSI monitoring 6.2 Software Stack Languages Python (primary) C/C++ (optional for embedded optimization) Libraries OpenCV → computer vision TensorFlow / PyTorch → AI models NumPy / SciPy → data processing 6.3 Data Pipeline Capture data from all sensors Synchronize timestamps Preprocess data Extract features Feed into AI models Fuse outputs Generate anomaly score 7. Algorithm Workflow Step-by-Step Execution Initialize sensors Capture baseline environment (training phase) Train anomaly detection model Start real-time monitoring For each frame: Extract features Compute anomaly score Fuse multi-sensor outputs If threshold exceeded: Trigger alert Highlight region 8. Output & Visualization User Interface Live camera feed Overlay: Heatmap (red = anomaly) Dashboard: Anomaly score Sensor confidence levels 9. Demo Plan (Very Important) Scenario Empty room → baseline Introduce hidden object: Covered person OR concealed device Expected Output Visual may show nothing System highlights anomaly region 10. Applications Border surveillance Military reconnaissance Smart perimeter security Critical infrastructure protection 11. Advantages Works even when objects are hidden Multi-sensor reliability Real-time detection Scalable to different environments 12. Limitations Requires calibration Environmental noise can affect accuracy RF module may have limited resolution 13. Future Enhancements Integration with drones (optional expansion) Satellite data fusion Advanced deep learning models Edge optimization for faster inference 14. Conclusion
+Project PARALLAX introduces a paradigm shift in surveillance:
+From detecting what is visible → to detecting what is out of place
+By combining computer vision, thermal sensing, RF analysis, and AI, the system enables detection of concealed threats that traditional systems would miss.

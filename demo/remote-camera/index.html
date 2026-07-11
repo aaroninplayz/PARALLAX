@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>PARALLAX — Remote Camera</title>
+  <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-dark: #0a0b10;
+      --bg-surface: #13151d;
+      --bg-panel: rgba(19, 21, 29, 0.75);
+      --accent: #a8b1ff;
+      --accent-dim: rgba(168, 177, 255, 0.1);
+      --accent-glow: rgba(168, 177, 255, 0.25);
+      --danger: #ff8e8b;
+      --success: #8be0a4;
+      --warning: #f5c542;
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --text-dim: #4a5568;
+      --border: rgba(255, 255, 255, 0.06);
+      --border-light: rgba(255, 255, 255, 0.1);
+      --radius: 16px;
+      --radius-sm: 10px;
+      --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      --transition: 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+    }
+
+    body {
+      background: var(--bg-dark);
+      color: var(--text-main);
+      font-family: 'Inter', -apple-system, sans-serif;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+      background-image:
+        radial-gradient(circle at 20% 80%, rgba(168, 177, 255, 0.04), transparent 40%),
+        radial-gradient(circle at 80% 20%, rgba(255, 142, 139, 0.03), transparent 40%);
+    }
+
+    h1, h2, h3 { font-family: 'Outfit', sans-serif; }
+
+    /* ─── Header ─── */
+    .header {
+      width: 100%;
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(10, 11, 16, 0.85);
+    }
+    .header-logo {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: 1.15rem;
+      letter-spacing: 3px;
+      color: var(--text-main);
+    }
+    .header-badge {
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      padding: 3px 10px;
+      border-radius: 50px;
+      border: 1px solid rgba(168, 177, 255, 0.15);
+    }
+
+    /* ─── Main ─── */
+    .main {
+      flex: 1;
+      width: 100%;
+      max-width: 520px;
+      padding: 1.5rem 1.25rem 3rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    /* ─── Card ─── */
+    .card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(20px);
+      overflow: hidden;
+    }
+    .card-body { padding: 1.5rem; }
+
+    /* ─── Video Preview ─── */
+    .preview-wrapper {
+      position: relative;
+      background: #000;
+      border-radius: var(--radius) var(--radius) 0 0;
+      overflow: hidden;
+      aspect-ratio: 4 / 3;
+    }
+    .preview-wrapper video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transform: scaleX(-1); /* mirror for selfie feel */
+    }
+    .preview-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      pointer-events: none;
+    }
+    .preview-overlay.hidden { display: none; }
+    .preview-overlay svg { opacity: 0.3; }
+
+    /* Camera switch button */
+    .cam-switch {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid var(--border-light);
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: var(--transition);
+      backdrop-filter: blur(8px);
+      z-index: 5;
+    }
+    .cam-switch:hover { background: rgba(168, 177, 255, 0.2); }
+    .cam-switch.hidden { display: none; }
+
+    /* ─── Status badge ─── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1.5rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.8rem;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    .status-dot.idle { background: var(--text-dim); }
+    .status-dot.connected { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .status-dot.error { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+    .status-dot.connecting { background: var(--warning); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    .fps-counter { color: var(--text-dim); font-family: monospace; font-size: 0.75rem; }
+
+    /* ─── Form Controls ─── */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .form-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+    .form-input {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      padding: 0.8rem 1rem;
+      color: var(--text-main);
+      font-family: monospace;
+      font-size: 0.9rem;
+      outline: none;
+      transition: var(--transition);
+      width: 100%;
+    }
+    .form-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+    .form-input::placeholder { color: var(--text-dim); }
+
+    .form-hint {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+
+    /* ─── Buttons ─── */
+    .btn {
+      padding: 0.85rem 1.5rem;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: var(--transition);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      letter-spacing: 0.5px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, rgba(168, 177, 255, 0.2), rgba(168, 177, 255, 0.08));
+      color: var(--accent);
+      border: 1px solid rgba(168, 177, 255, 0.2);
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, rgba(168, 177, 255, 0.3), rgba(168, 177, 255, 0.12));
+      box-shadow: 0 4px 20px var(--accent-dim);
+    }
+    .btn-primary:active { transform: scale(0.98); }
+
+    .btn-danger {
+      background: rgba(255, 142, 139, 0.1);
+      color: var(--danger);
+      border: 1px solid rgba(255, 142, 139, 0.2);
+    }
+    .btn-danger:hover {
+      background: rgba(255, 142, 139, 0.18);
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 0.75rem;
+    }
+    .btn-group .btn { flex: 1; }
+
+    /* ─── Quality Selector ─── */
+    .quality-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .quality-row select {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      padding: 0.5rem 0.75rem;
+      color: var(--text-main);
+      font-family: 'Inter', sans-serif;
+      font-size: 0.85rem;
+      outline: none;
+      cursor: pointer;
+      flex: 1;
+    }
+    .quality-row select:focus {
+      border-color: var(--accent);
+    }
+
+    /* ─── Info block ─── */
+    .info-block {
+      background: var(--accent-dim);
+      border: 1px solid rgba(168, 177, 255, 0.12);
+      border-radius: var(--radius-sm);
+      padding: 1rem 1.25rem;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .info-block strong { color: var(--accent); }
+
+    /* ─── Footer ─── */
+    .footer {
+      text-align: center;
+      padding: 1rem;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      letter-spacing: 1px;
+    }
+
+    /* ─── Responsive ─── */
+    @media (min-width: 768px) {
+      .main { padding: 2rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <span class="header-logo">PARALLAX</span>
+    <span class="header-badge">REMOTE CAMERA</span>
+  </div>
+
+  <div class="main">
+    <!-- Camera Preview Card -->
+    <div class="card">
+      <div class="preview-wrapper">
+        <video id="videoPreview" autoplay playsinline muted></video>
+        <div id="previewOverlay" class="preview-overlay">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+          <span>Camera not started</span>
+        </div>
+        <button id="camSwitchBtn" class="cam-switch hidden" title="Switch Camera" onclick="switchCamera()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+        </button>
+      </div>
+      <div class="status-bar">
+        <div>
+          <span id="statusDot" class="status-dot idle"></span>
+          <span id="statusText" style="color: var(--text-muted);">Idle</span>
+        </div>
+        <span id="fpsDisplay" class="fps-counter"></span>
+      </div>
+    </div>
+
+    <!-- Connection Card -->
+    <div class="card">
+      <div class="card-body" style="display: flex; flex-direction: column; gap: 1.25rem;">
+        <div class="form-group">
+          <label class="form-label" for="serverUrl">Backend Server URL</label>
+          <input
+            id="serverUrl"
+            class="form-input"
+            type="url"
+            placeholder="http://192.168.1.100:8000"
+            autocomplete="off"
+            autocorrect="off"
+            spellcheck="false"
+          />
+          <span class="form-hint">
+            Enter your PARALLAX backend address. Use your laptop's local IP if on the same Wi-Fi, or your Cloudflare tunnel URL.
+          </span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Stream Quality</label>
+          <div class="quality-row">
+            <select id="qualitySelect">
+              <option value="0.5">Low (faster, less data)</option>
+              <option value="0.65" selected>Medium (balanced)</option>
+              <option value="0.8">High (more detail)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="btn-group">
+          <button id="connectBtn" class="btn btn-primary" onclick="toggleConnection()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            Start Streaming
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Help Card -->
+    <div class="info-block">
+      <strong>How to use:</strong><br/>
+      1. Make sure your phone and laptop are on the <strong>same network</strong> (e.g., phone hotspot).<br/>
+      2. Enter your laptop's IP address above (find it with <code style="color:var(--accent)">ipconfig</code>).<br/>
+      3. In the PARALLAX dashboard, go to <strong>Settings → Camera Source → External</strong>.<br/>
+      4. Tap <strong>Start Streaming</strong> — your phone camera is now the PARALLAX eye.
+    </div>
+  </div>
+
+  <div class="footer">PARALLAX REMOTE CAMERA SYSTEM</div>
+
+  <script>
+    // ═══════════════════════════════════════════
+    //  STATE
+    // ═══════════════════════════════════════════
+    let ws = null;
+    let stream = null;
+    let isConnected = false;
+    let sendIntervalId = null;
+    let facingMode = 'environment'; // rear camera default
+    let framesSent = 0;
+    let fpsTimer = null;
+
+    const TARGET_FPS = 30;
+    const FRAME_INTERVAL = 1000 / TARGET_FPS;
+
+    // DOM
+    const video = document.getElementById('videoPreview');
+    const overlay = document.getElementById('previewOverlay');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const fpsDisplay = document.getElementById('fpsDisplay');
+    const connectBtn = document.getElementById('connectBtn');
+    const serverUrlInput = document.getElementById('serverUrl');
+    const qualitySelect = document.getElementById('qualitySelect');
+    const camSwitchBtn = document.getElementById('camSwitchBtn');
+
+    // Canvas for frame capture (offscreen)
+    const captureCanvas = document.createElement('canvas');
+    const captureCtx = captureCanvas.getContext('2d');
+
+    // ═══════════════════════════════════════════
+    //  CAMERA
+    // ═══════════════════════════════════════════
+    async function startCamera() {
+      try {
+        if (stream) {
+          stream.getTracks().forEach(t => t.stop());
+        }
+
+        const constraints = {
+          video: {
+            facingMode: facingMode,
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            frameRate: { ideal: 30 }
+          },
+          audio: false
+        };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        overlay.classList.add('hidden');
+        camSwitchBtn.classList.remove('hidden');
+
+        // Set canvas size from actual video track
+        const track = stream.getVideoTracks()[0];
+        const settings = track.getSettings();
+        captureCanvas.width = settings.width || 640;
+        captureCanvas.height = settings.height || 480;
+
+        return true;
+      } catch (err) {
+        console.error('Camera error:', err);
+        setStatus('error', `Camera error: ${err.message}`);
+        return false;
+      }
+    }
+
+    function switchCamera() {
+      facingMode = facingMode === 'environment' ? 'user' : 'environment';
+      if (stream) {
+        startCamera(); // restart with new facing mode
+      }
+    }
+
+    // ═══════════════════════════════════════════
+    //  WEBSOCKET CONNECTION
+    // ═══════════════════════════════════════════
+    async function toggleConnection() {
+      if (isConnected) {
+        disconnect();
+      } else {
+        await connect();
+      }
+    }
+
+    async function connect() {
+      const serverUrl = serverUrlInput.value.trim();
+      if (!serverUrl) {
+        setStatus('error', 'Enter a server URL');
+        serverUrlInput.focus();
+        return;
+      }
+
+      // Start camera first
+      setStatus('connecting', 'Starting camera...');
+      const camOk = await startCamera();
+      if (!camOk) return;
+
+      // Build WebSocket URL
+      let wsUrl;
+      try {
+        const url = new URL(serverUrl);
+        const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${protocol}//${url.host}/ws/external-camera`;
+      } catch (e) {
+        setStatus('error', 'Invalid URL format');
+        return;
+      }
+
+      setStatus('connecting', 'Connecting to server...');
+
+      try {
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          isConnected = true;
+          setStatus('connected', 'Streaming');
+          connectBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+            </svg>
+            Stop Streaming
+          `;
+          connectBtn.classList.remove('btn-primary');
+          connectBtn.classList.add('btn-danger');
+          serverUrlInput.disabled = true;
+          qualitySelect.disabled = true;
+
+          startFrameSending();
+          startFPSCounter();
+        };
+
+        ws.onclose = () => {
+          if (isConnected) {
+            setStatus('error', 'Connection lost');
+          }
+          cleanup();
+        };
+
+        ws.onerror = (err) => {
+          console.error('WebSocket error:', err);
+          setStatus('error', 'Connection failed');
+          cleanup();
+        };
+      } catch (err) {
+        setStatus('error', 'Connection failed');
+        cleanup();
+      }
+    }
+
+    function disconnect() {
+      setStatus('idle', 'Disconnected');
+      if (ws) {
+        ws.close();
+      }
+      cleanup();
+    }
+
+    function cleanup() {
+      isConnected = false;
+      ws = null;
+
+      if (sendIntervalId) {
+        clearInterval(sendIntervalId);
+        sendIntervalId = null;
+      }
+      if (fpsTimer) {
+        clearInterval(fpsTimer);
+        fpsTimer = null;
+      }
+
+      fpsDisplay.textContent = '';
+      connectBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        Start Streaming
+      `;
+      connectBtn.classList.add('btn-primary');
+      connectBtn.classList.remove('btn-danger');
+      serverUrlInput.disabled = false;
+      qualitySelect.disabled = false;
+    }
+
+    // ═══════════════════════════════════════════
+    //  FRAME SENDING
+    // ═══════════════════════════════════════════
+    function startFrameSending() {
+      if (sendIntervalId) clearInterval(sendIntervalId);
+
+      sendIntervalId = setInterval(() => {
+        if (!ws || ws.readyState !== WebSocket.OPEN || !stream) return;
+
+        // Don't queue frames if WebSocket buffer is backing up
+        if (ws.bufferedAmount > 100000) return;
+
+        captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+
+        const quality = parseFloat(qualitySelect.value);
+        const dataUrl = captureCanvas.toDataURL('image/jpeg', quality);
+
+        // Send just the base64 portion (strip the data:image/jpeg;base64, prefix)
+        const b64 = dataUrl.split(',')[1];
+        ws.send(b64);
+        framesSent++;
+      }, FRAME_INTERVAL);
+    }
+
+    function startFPSCounter() {
+      framesSent = 0;
+      if (fpsTimer) clearInterval(fpsTimer);
+
+      fpsTimer = setInterval(() => {
+        fpsDisplay.textContent = `${framesSent} FPS`;
+        framesSent = 0;
+      }, 1000);
+    }
+
+    // ═══════════════════════════════════════════
+    //  STATUS DISPLAY
+    // ═══════════════════════════════════════════
+    function setStatus(state, text) {
+      statusDot.className = 'status-dot ' + state;
+      statusText.textContent = text;
+    }
+
+    // ═══════════════════════════════════════════
+    //  INIT — Restore last used URL
+    // ═══════════════════════════════════════════
+    const savedUrl = localStorage.getItem('parallax_remote_url');
+    if (savedUrl) serverUrlInput.value = savedUrl;
+
+    serverUrlInput.addEventListener('input', () => {
+      localStorage.setItem('parallax_remote_url', serverUrlInput.value);
+    });
+  </script>
+</body>
+</html>

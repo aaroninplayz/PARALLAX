@@ -1,0 +1,173 @@
+.docs-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4rem;
+}
+
+.docs-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.docs-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3rem;
+  align-items: center;
+}
+
+.doc-card {
+  padding: 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.doc-card h2 {
+  font-size: 1.8rem;
+  color: var(--text-main);
+  margin-bottom: 0.5rem;
+}
+
+.doc-card p {
+  color: var(--text-muted);
+  line-height: 1.7;
+  font-size: 1.05rem;
+}
+
+.doc-card strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.card-icon {
+  width: 64px;
+  height: 64px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  box-shadow: var(--shadow-neo);
+  border: 1px solid var(--border-light);
+}
+
+/* Visual Diagrams */
+.doc-visual {
+  padding: 3rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 300px;
+}
+
+.offset-visual {
+  transform: translateY(40px);
+}
+
+.diagram-container {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  justify-content: center;
+}
+
+.diagram-container.vertical {
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.d-node {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  padding: 1rem 1.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: var(--shadow-neo);
+  min-width: 140px;
+}
+
+.d-node.small { padding: 0.75rem 1rem; min-width: auto; }
+.ae-node { border-color: var(--accent); color: var(--accent); }
+.error-node { border-color: var(--danger); color: var(--danger); }
+.resnet-node { border-color: #a855f7; color: #d8b4fe; }
+.success-node { border-color: var(--success); color: var(--success); }
+.alert-node { border-color: var(--danger); color: var(--danger); }
+
+.decision-split {
+  display: flex;
+  gap: 2rem;
+  position: relative;
+}
+
+.decision-split::before {
+  content: '';
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 120px;
+  height: 2px;
+  background: var(--border-light);
+}
+
+.decision-split::after {
+  content: '';
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 20px;
+  background: var(--border-light);
+}
+
+.decision-split .d-node {
+  position: relative;
+}
+.decision-split .d-node::before {
+  content: '';
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 20px;
+  background: var(--border-light);
+}
+
+.d-arrow {
+  color: var(--text-muted);
+  font-size: 1.5rem;
+}
+
+.d-arrow-down {
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+/* Mobile Responsive */
+@media (max-width: 900px) {
+  .docs-grid {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+  
+  .offset-visual { transform: none; }
+  
+  /* Swap order for mobile so image comes after text */
+  .doc-visual:nth-child(2) { grid-row: 2; }
+  .doc-card:nth-child(3) { grid-row: 3; }
+  .doc-visual:nth-child(4) { grid-row: 4; }
+  
+  .diagram-container { flex-direction: column; }
+  .d-arrow { transform: rotate(90deg); }
+}
