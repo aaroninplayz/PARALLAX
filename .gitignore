@@ -31,3 +31,4 @@ demo/training_data_collection/
 demo/classifier_training_data/
 demo/graphify-out/
 demo/graphify_output.html
+demo/.jwt_secret

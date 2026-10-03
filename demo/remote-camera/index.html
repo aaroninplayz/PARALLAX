@@ -367,6 +367,16 @@
         </div>
 
         <div class="form-group">
+          <label class="form-label" for="operatorId">Operator ID</label>
+          <input id="operatorId" class="form-input" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="operatorKey">Password</label>
+          <input id="operatorKey" class="form-input" type="password" autocomplete="current-password" />
+        </div>
+
+        <div class="form-group">
           <label class="form-label">Stream Quality</label>
           <div class="quality-row">
             <select id="qualitySelect">
@@ -423,6 +433,8 @@
     const fpsDisplay = document.getElementById('fpsDisplay');
     const connectBtn = document.getElementById('connectBtn');
     const serverUrlInput = document.getElementById('serverUrl');
+    const operatorIdInput = document.getElementById('operatorId');
+    const operatorKeyInput = document.getElementById('operatorKey');
     const qualitySelect = document.getElementById('qualitySelect');
     const camSwitchBtn = document.getElementById('camSwitchBtn');
 
@@ -494,7 +506,26 @@
         return;
       }
 
-      // Start camera first
+      // Authenticate first — the backend rejects unauthenticated camera streams
+      let token;
+      try {
+        setStatus('connecting', 'Signing in...');
+        const body = new URLSearchParams({
+          username: operatorIdInput.value.trim(),
+          password: operatorKeyInput.value,
+        });
+        const res = await fetch(`${new URL(serverUrl).origin}/auth/login`, { method: 'POST', body });
+        if (!res.ok) {
+          setStatus('error', 'Sign-in failed');
+          return;
+        }
+        token = (await res.json()).access_token;
+      } catch (e) {
+        setStatus('error', 'Could not reach server');
+        return;
+      }
+
+      // Start camera
       setStatus('connecting', 'Starting camera...');
       const camOk = await startCamera();
       if (!camOk) return;
@@ -504,7 +535,7 @@
       try {
         const url = new URL(serverUrl);
         const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-        wsUrl = `${protocol}//${url.host}/ws/external-camera`;
+        wsUrl = `${protocol}//${url.host}/ws/external-camera?token=${encodeURIComponent(token)}`;
       } catch (e) {
         setStatus('error', 'Invalid URL format');
         return;
@@ -527,6 +558,8 @@
           connectBtn.classList.remove('btn-primary');
           connectBtn.classList.add('btn-danger');
           serverUrlInput.disabled = true;
+          operatorIdInput.disabled = true;
+          operatorKeyInput.disabled = true;
           qualitySelect.disabled = true;
 
           startFrameSending();
@@ -582,6 +615,8 @@
       connectBtn.classList.add('btn-primary');
       connectBtn.classList.remove('btn-danger');
       serverUrlInput.disabled = false;
+      operatorIdInput.disabled = false;
+      operatorKeyInput.disabled = false;
       qualitySelect.disabled = false;
     }
 
