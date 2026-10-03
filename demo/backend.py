@@ -5,6 +5,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import shutil
 import glob
 import queue
@@ -26,7 +27,8 @@ app = FastAPI(title="PARALLAX Local Backend")
 
 # ── Auth Endpoints ──
 @app.post("/auth/signup")
-def signup(form_data: OAuth2PasswordRequestForm = Depends()):
+def signup(form_data: OAuth2PasswordRequestForm = Depends(), current_user: str = Depends(get_current_user)):
+    # Only an existing operator can create new accounts (bootstrap the first one with create_admin.py)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM users WHERE username = ?", (form_data.username,))
@@ -73,9 +75,14 @@ THUMBNAIL_QUALITY = 90
 VIDEO_CODEC = "avc1"
 VIDEO_EXT = ".mp4"
 COOLDOWN_SECONDS = 10          # Min gap between anomaly events
+MAX_CLIP_SECONDS = 60          # Long-running events are split into clips of at most this length
 RETENTION_DAYS = 30            # Auto-cleanup: delete data older than this
 SESSION_VIDEO_FPS = 10         # Full session recording at lower FPS to save disk
 SESSION_VIDEO_INTERVAL = 3     # Write every Nth frame to session video (saves ~66% disk)
+MIN_BUFFER_FPS = 15            # Ring buffer is sized for at least this frame rate
+MAX_BUFFER_FPS = 60            # ...and at most this
+RING_BUFFER_MAX_BYTES = 512 * 1024 * 1024   # Hard memory budget for pre-anomaly footage
+CLIP_MAX_BYTES = 1024 * 1024 * 1024         # Hard memory budget for one in-progress clip
 calibration_delay_seconds = 5.0    # Buffer delay before calibration starts
 calibration_duration_seconds = 10.0 # Model training duration before inference starts
 auto_recalibrate_minutes = 0       # Interval to reset baseline (0 = disabled)
@@ -92,12 +99,26 @@ anomaly_history_lock = threading.Lock()
 
 # ── External Camera Support ──
 external_camera_frame = None
+external_camera_seq = 0  # Increments on every new frame so the loop never reprocesses one
 external_camera_lock = threading.Lock()
 external_camera_connected = False
 use_external_camera = False  # Toggle: True = external, False = built-in
 
 # Ensure storage root exists
 os.makedirs(ANOMALY_STORAGE_ROOT, exist_ok=True)
+
+_SAFE_ID = re.compile(r"^[A-Za-z0-9_\-]+$")
+
+def _storage_path(*ids: str) -> str:
+    """Build a path under ANOMALY_STORAGE_ROOT from URL-supplied IDs, rejecting traversal."""
+    for part in ids:
+        if not _SAFE_ID.fullmatch(part):
+            raise HTTPException(status_code=400, detail="Invalid identifier")
+    root = os.path.realpath(ANOMALY_STORAGE_ROOT)
+    path = os.path.realpath(os.path.join(root, *ids))
+    if os.path.commonpath([root, path]) != root or path == root:
+        raise HTTPException(status_code=400, detail="Invalid identifier")
+    return path
 
 
 # ═══════════════════════════════════════════════════════
@@ -194,6 +215,17 @@ def _save_anomaly_clip(frames, fps, session_dir, anomaly_id, trigger_frame, scor
     print(f"[PERSIST] Anomaly saved → {anomaly_dir}  |  {len(frames)} frames  |  {clip_size_mb:.1f} MB")
 
 
+def _queue_anomaly_clip(frames, fps, session_dir, anomaly_count, start_ts, trigger_frame, peak_score, end_ts):
+    """Hand a finished clip to a background writer thread."""
+    anomaly_id = f"anomaly_{anomaly_count:04d}_{int(start_ts)}"
+    threading.Thread(
+        target=_save_anomaly_clip,
+        args=(frames, fps, session_dir, anomaly_id, trigger_frame, peak_score, start_ts, end_ts),
+        daemon=True,
+    ).start()
+    print(f"[PERSIST] Anomaly #{anomaly_count} queued ({len(frames)} frames).")
+
+
 # ═══════════════════════════════════════════════════════
 #  SESSION METADATA WRITER
 # ═══════════════════════════════════════════════════════
@@ -234,7 +266,7 @@ def processing_loop():
     # ── Camera source: built-in or external ──
     cap = None
     if not use_external_camera:
-        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        cap = cv2.VideoCapture(0, cv2.CAP_ANY)
         cap.set(cv2.CAP_PROP_FPS, 60)
         if not cap.isOpened():
             print("[BACKEND] Warning: Camera could not be opened.")
@@ -274,6 +306,8 @@ def processing_loop():
     anomaly_count = 0
 
     consecutive_failures = 0
+    last_external_seq = -1
+    smoothed_fps = 0.0
     while is_processing.is_set():
         frame = None
         got_frame = False
@@ -281,8 +315,9 @@ def processing_loop():
         if use_external_camera:
             # Read from the external camera buffer
             with external_camera_lock:
-                if external_camera_frame is not None:
+                if external_camera_frame is not None and external_camera_seq != last_external_seq:
                     frame = external_camera_frame.copy()
+                    last_external_seq = external_camera_seq
                     got_frame = True
             if not got_frame:
                 time.sleep(0.01)
@@ -297,7 +332,7 @@ def processing_loop():
                         print("[BACKEND] Too many frame failures. Reopening camera...")
                         cap.release()
                         time.sleep(1)
-                        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+                        cap = cv2.VideoCapture(0, cv2.CAP_ANY)
                         cap.set(cv2.CAP_PROP_FPS, 60)
                         consecutive_failures = 0
                     time.sleep(0.01)
@@ -316,6 +351,8 @@ def processing_loop():
         fps = 1.0 / max(now - prev_time, 1e-6)
         prev_time = now
         total_frames += 1
+        # Smooth FPS so buffer sizing and clip timing don't react to per-frame jitter
+        smoothed_fps = fps if smoothed_fps == 0.0 else (smoothed_fps * 0.95 + fps * 0.05)
 
         # ── Session video: write every Nth frame at lower FPS ──
         if record_full_sessions:
@@ -328,8 +365,9 @@ def processing_loop():
                 session_writer.write(frame)
 
         # ── Ring buffer sizing ──
-        target_ring_size = int(ring_buffer_seconds * max(fps, 15))
-        if ring_buffer.maxlen != target_ring_size:
+        buffer_fps = min(max(smoothed_fps, MIN_BUFFER_FPS), MAX_BUFFER_FPS)
+        target_ring_size = max(1, min(int(ring_buffer_seconds * buffer_fps), RING_BUFFER_MAX_BYTES // frame.nbytes))
+        if abs(ring_buffer.maxlen - target_ring_size) > max(1, ring_buffer.maxlen // 5):
             ring_buffer = deque(ring_buffer, maxlen=target_ring_size)
         ring_buffer.append(frame.copy())
 
@@ -516,19 +554,22 @@ def processing_loop():
                     post_capture_end_time = 0.0
                     last_anomaly_save_time = now
                     anomaly_count += 1
-                    anomaly_id = f"anomaly_{anomaly_count:04d}_{int(anomaly_start_time)}"
-                    all_frames = list(anomaly_post_frames)
-                    
-                    threading.Thread(
-                        target=_save_anomaly_clip,
-                        args=(all_frames, fps, session_dir, anomaly_id,
-                              anomaly_trigger_frame, anomaly_peak_score,
-                              anomaly_start_time, now),
-                        daemon=True,
-                    ).start()
-                    print(f"[PERSIST] Anomaly #{anomaly_count} queued ({len(all_frames)} frames).")
+                    _queue_anomaly_clip(anomaly_post_frames, smoothed_fps, session_dir, anomaly_count,
+                                        anomaly_start_time, anomaly_trigger_frame, anomaly_peak_score, now)
                     anomaly_post_frames = []
                     anomaly_trigger_frame = None
+
+        # ── Split over-long events so recorded frames can't grow without bound ──
+        max_clip_frames = max(1, min(int(MAX_CLIP_SECONDS * buffer_fps), CLIP_MAX_BYTES // frame.nbytes))
+        if len(anomaly_post_frames) >= max_clip_frames:
+            anomaly_count += 1
+            _queue_anomaly_clip(anomaly_post_frames, smoothed_fps, session_dir, anomaly_count,
+                                anomaly_start_time, anomaly_trigger_frame, anomaly_peak_score, now)
+            print(f"[PERSIST] Event exceeded {MAX_CLIP_SECONDS}s; continuing in a new clip.")
+            anomaly_post_frames = []
+            anomaly_start_time = now
+            anomaly_trigger_frame = frame.copy()
+            anomaly_peak_score = ai.smooth_score
 
         # ── Stream to WebSocket ──
         encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 70]
@@ -549,7 +590,7 @@ def processing_loop():
                     "warming_up": is_warming_up,
                     "patch_image": patch_b64,
                     "score": float(ai.smooth_score),
-                    "fps": int(fps),
+                    "fps": int(smoothed_fps),
                     "session_id": current_session_id,
                     "anomaly_count": anomaly_count,
                     "recording": anomaly_active or post_capture_end_time > 0,
@@ -558,6 +599,13 @@ def processing_loop():
             latest_payload = json.dumps(payload)
 
     # ── Cleanup on stop ──
+    # Save any event still being recorded instead of silently discarding it
+    if anomaly_post_frames:
+        anomaly_count += 1
+        _queue_anomaly_clip(anomaly_post_frames, smoothed_fps, session_dir, anomaly_count,
+                            anomaly_start_time, anomaly_trigger_frame, anomaly_peak_score, time.time())
+        anomaly_post_frames = []
+
     if session_writer is not None:
         session_writer.release()
     if cap is not None and cap.isOpened():
@@ -650,7 +698,7 @@ def list_sessions(current_user: str = Depends(get_current_user)):
 @app.get("/sessions/{session_id}")
 def get_session(session_id: str, current_user: str = Depends(get_current_user)):
     """Get details for a specific session including its anomalies."""
-    session_path = os.path.join(ANOMALY_STORAGE_ROOT, session_id)
+    session_path = _storage_path(session_id)
     if not os.path.isdir(session_path):
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -684,9 +732,9 @@ def get_session_video(session_id: str, token: str = None):
     current_user = get_current_user_query(token)
     """Stream the full session video file."""
     # Check for mp4 first, then legacy avi
-    video_path = os.path.join(ANOMALY_STORAGE_ROOT, session_id, f"session_full{VIDEO_EXT}")
+    video_path = os.path.join(_storage_path(session_id), f"session_full{VIDEO_EXT}")
     if not os.path.isfile(video_path):
-        video_path = os.path.join(ANOMALY_STORAGE_ROOT, session_id, "session_full.avi")
+        video_path = os.path.join(_storage_path(session_id), "session_full.avi")
     if not os.path.isfile(video_path):
         raise HTTPException(status_code=404, detail="Session video not found")
     ext = os.path.splitext(video_path)[1]
@@ -706,7 +754,7 @@ def get_anomalies(current_user: str = Depends(get_current_user)):
 @app.get("/anomalies/{session_id}/{anomaly_id}")
 def get_anomaly(session_id: str, anomaly_id: str, current_user: str = Depends(get_current_user)):
     """Get metadata for a specific anomaly."""
-    meta_path = os.path.join(ANOMALY_STORAGE_ROOT, session_id, anomaly_id, "metadata.json")
+    meta_path = os.path.join(_storage_path(session_id, anomaly_id), "metadata.json")
     if not os.path.isfile(meta_path):
         raise HTTPException(status_code=404, detail="Anomaly not found")
     with open(meta_path) as f:
@@ -717,7 +765,7 @@ def get_anomaly(session_id: str, anomaly_id: str, current_user: str = Depends(ge
 def get_anomaly_thumbnail(session_id: str, anomaly_id: str, token: str = None):
     current_user = get_current_user_query(token)
     """Serve the anomaly thumbnail image."""
-    thumb_path = os.path.join(ANOMALY_STORAGE_ROOT, session_id, anomaly_id, "thumbnail.jpg")
+    thumb_path = os.path.join(_storage_path(session_id, anomaly_id), "thumbnail.jpg")
     if not os.path.isfile(thumb_path):
         raise HTTPException(status_code=404, detail="Thumbnail not found")
     return FileResponse(thumb_path, media_type="image/jpeg")
@@ -728,11 +776,11 @@ def get_anomaly_clip(session_id: str, anomaly_id: str, token: str = None):
     current_user = get_current_user_query(token)
     """Serve the anomaly video clip."""
     # Check for mp4 first, then legacy formats
-    clip_path = os.path.join(ANOMALY_STORAGE_ROOT, session_id, anomaly_id, f"clip{VIDEO_EXT}")
+    clip_path = os.path.join(_storage_path(session_id, anomaly_id), f"clip{VIDEO_EXT}")
     if not os.path.isfile(clip_path):
-        clip_path = os.path.join(ANOMALY_STORAGE_ROOT, session_id, anomaly_id, "clip.webm")
+        clip_path = os.path.join(_storage_path(session_id, anomaly_id), "clip.webm")
     if not os.path.isfile(clip_path):
-        clip_path = os.path.join(ANOMALY_STORAGE_ROOT, session_id, anomaly_id, "clip.avi")
+        clip_path = os.path.join(_storage_path(session_id, anomaly_id), "clip.avi")
     if not os.path.isfile(clip_path):
         raise HTTPException(status_code=404, detail="Clip not found")
     ext = os.path.splitext(clip_path)[1]
@@ -743,7 +791,7 @@ def get_anomaly_clip(session_id: str, anomaly_id: str, token: str = None):
 @app.post("/anomalies/{session_id}/{anomaly_id}/status")
 async def update_anomaly_status(session_id: str, anomaly_id: str, request: dict, current_user: str = Depends(get_current_user)):
     """Update the status of an anomaly (e.g., to 'false_positive')."""
-    meta_path = os.path.join(ANOMALY_STORAGE_ROOT, session_id, anomaly_id, "metadata.json")
+    meta_path = os.path.join(_storage_path(session_id, anomaly_id), "metadata.json")
     if not os.path.isfile(meta_path):
         raise HTTPException(status_code=404, detail="Anomaly not found")
     
@@ -761,7 +809,7 @@ async def update_anomaly_status(session_id: str, anomaly_id: str, request: dict,
 @app.delete("/anomalies/{session_id}/{anomaly_id}")
 def delete_anomaly(session_id: str, anomaly_id: str, current_user: str = Depends(get_current_user)):
     """Permanently delete an anomaly folder."""
-    anomaly_path = os.path.join(ANOMALY_STORAGE_ROOT, session_id, anomaly_id)
+    anomaly_path = _storage_path(session_id, anomaly_id)
     if not os.path.isdir(anomaly_path):
         raise HTTPException(status_code=404, detail="Anomaly not found")
         
@@ -926,8 +974,13 @@ async def set_camera_source(request: dict, current_user: str = Depends(get_curre
 # ── WebSocket: External Camera Ingest ──
 
 @app.websocket("/ws/external-camera")
-async def external_camera_ws(websocket: WebSocket):
-    global external_camera_frame, external_camera_connected
+async def external_camera_ws(websocket: WebSocket, token: str = None):
+    global external_camera_frame, external_camera_connected, external_camera_seq
+    try:
+        get_current_user_query(token)
+    except Exception:
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     external_camera_connected = True
     print("[EXT-CAM] Remote camera connected.")
@@ -943,6 +996,7 @@ async def external_camera_ws(websocket: WebSocket):
                 if frame is not None:
                     with external_camera_lock:
                         external_camera_frame = frame
+                        external_camera_seq += 1
             except Exception as e:
                 print(f"[EXT-CAM] Frame decode error: {e}")
     except WebSocketDisconnect:

@@ -1,3 +1,5 @@
+import os
+import secrets
 import sqlite3
 import bcrypt
 import jwt
@@ -6,7 +8,26 @@ from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 
 # ── Configuration ──
-SECRET_KEY = "PARALLAX_MILITARY_GRADE_SECRET_KEY_REPLACE_IN_PROD"
+SECRET_KEY_FILE = ".jwt_secret"
+
+def _load_secret_key() -> str:
+    # Prefer an explicit env var; otherwise generate a random key once and persist it
+    # so tokens survive restarts. Never ship a hardcoded signing key.
+    env_key = os.environ.get("PARALLAX_SECRET_KEY")
+    if env_key:
+        return env_key
+    if os.path.isfile(SECRET_KEY_FILE):
+        with open(SECRET_KEY_FILE) as f:
+            key = f.read().strip()
+        if key:
+            return key
+    key = secrets.token_urlsafe(64)
+    fd = os.open(SECRET_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(key)
+    return key
+
+SECRET_KEY = _load_secret_key()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 DB_PATH = "auth.db"
